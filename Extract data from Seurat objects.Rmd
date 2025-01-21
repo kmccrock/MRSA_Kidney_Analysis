@@ -1,0 +1,85 @@
+---
+title: "MRSA Mouse Liver"
+output: html_document
+date: "2024-10-28"
+---
+
+```{r}
+library(rhdf5)
+
+path = 'C:/Users/kmccr/Desktop/MRSA Mouse Kidney for Takashi/'
+```
+
+### Import Seurat Objects
+```{r}
+A2 = readRDS(paste0(path,'Data/seurat_objects/achromoday2_seurat.RDS'))
+A4 = readRDS(paste0(path,'Data/seurat_objects/achromoday4_seurat.RDS'))
+S2 = readRDS(paste0(path,'Data/seurat_objects/standardday2_seurat.RDS'))
+S4 = readRDS(paste0(path,'Data/seurat_objects/standardday4_seurat.RDS'))
+A2[["slice1.2"]] <- NULL
+A4[["slice1.2"]] <- NULL
+S2[["slice1"]] <- NULL
+S4[["slice1"]] <- NULL
+
+samp_dict = list("A2" = A2, "A4" = A4, "S2" = S2, "S4" = S4)
+# samp_dict = list("S2" = S2)
+
+sample = S4
+# sample_description = 'Day 4 - Standard'
+# min_expression_filter = 1
+```
+
+### Loop over samples and save relevant data for Anndata object construction in Python
+```{r}
+for (samp_name in names(samp_dict)) {
+  sample = samp_dict[[samp_name]]
+  
+  # # set appropriate image name
+  # if (samp_name == 'A2' | samp_name == 'A4'){
+  #   slice = "slice1"
+  # } else {
+  #   slice = "slice1.2"
+  # }
+  
+  # get image name
+  slice = names(sample@images)[1]
+  
+  # 1. DATA
+  # extract spatial coordinates, expression matrix, and metadata
+  spatial = sample@images[[slice]]@coordinates
+  expression_matrix = GetAssayData(sample, assay = "SCT", layer = "counts")
+  expression_matrix_df <- as.data.frame(as.matrix(expression_matrix))
+  cell_metadata = as.data.frame(sample@meta.data)
+  cell_metadata$MRSA = ifelse(cell_metadata$MRSAlevel > 1, "MRSA-Yes", "MRSA-No")
+  # save to files
+  write.csv(spatial, file = paste0("exported from Seurat/spatial_",samp_name,".csv"), row.names = TRUE)
+  write.csv(expression_matrix_df, file = paste0("exported from Seurat/expr_",samp_name,".csv"), row.names = TRUE)
+  write.csv(cell_metadata, file = paste0("exported from Seurat/meta_",samp_name,".csv"), row.names = TRUE)
+  
+  # 2. IMAGE
+  # grab image
+  image_data <- sample@images[[slice]]@image
+  # extract dimensions
+  x = dim(image_data)[1]
+  y = dim(image_data)[2]
+  z = dim(image_data)[3]
+  # convert to array
+  image_matrix <- array(image_data, dim = c(x, y, z))
+  # save the array as an HDF5 file
+  h5write(image_data, paste0("exported from Seurat/image_",samp_name,".h5"), "dataset")
+  
+  
+  # 2. SCALE FACTORS
+  # grab scale factors
+  sf = sample@images[[slice]]@scale.factors
+  # convert to df
+  sfdf <- data.frame(
+    spot = sf$spot,
+    fiducial = sf$fiducial,
+    hires = sf$hires,
+    lowres = sf$lowres
+  )
+  # save
+  write.csv(sfdf, file = paste0("exported from Seurat/scalefactors_",samp_name,".csv"), row.names = FALSE)
+}
+```
